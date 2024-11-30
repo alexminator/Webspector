@@ -23,9 +23,9 @@ int numBands =              64;                     // Default number of bands. 
 int NoiseTresshold =        2000;                   // this will effect the upper bands most.
 float Speedfilter=          0.08;                   // slowdown factor for columns to look less 'nervous' The higher the quicker
 
-const int samplingFrequency = 44100;                // The audio sampling frequency. 
-const int SAMPLEBLOCK = 1024;                       // size of sample block, only half the size contains useable samples
- 
+// I2S
+#define I2S_SAMPLE_RATE     44100                   // Max sampling frequency = 44.100 kHz 
+#define SAMPLEBLOCK         1024                    // size of sample block, only half the size contains useable samples
 
 String labels[65];
 int BandCutoffTable[65];

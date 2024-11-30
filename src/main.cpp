@@ -2,9 +2,9 @@
 
 /***************************************************************************************************************************************
                                                                                                                                                         
-    Project:         Webspector - WebServer based Spectrum Analyzer
+    Project:         Webspector PLUS- WebServer based Spectrum Analyzer
     Target Platform: ESP32                                                                                                                                                                                                                                                                                       *
-    Version: 1.1
+    Version: 1.0
     Hardware setup: See github
                                                                                                                                                                                                                                                                                                             
     Mark Donners
@@ -20,7 +20,7 @@
  *   Do not change settings below
  ****************************************************************************************************************************************/
 
-#define VERSION     "V1.1"
+#define VERSION     "V1.0"
 
 //included files
 #include "Settings.h"
@@ -40,8 +40,15 @@
 #include <driver/i2s.h>
 #include <driver/adc.h>
 
-/*********************************************************/
-//Variables and stuff that don't need changing          //*
+/********************************************************
+ * Variables and stuff that don't need changing         *
+ * ADC1_CHANNEL_0 GPI036 VP                             *
+ * ADC1_CHANNEL_3 GPI039 VN                             *
+ * ADC1_CHANNEL_6 GPI034 D34                            *
+ * ADC1_CHANNEL_7 GPI035 D35                            *
+ * ADC1_CHANNEL_4 GPI032 D32                            *
+ * ADC1_CHANNEL_5 GPI033 D33                            *
+/*******************************************************/
 const i2s_port_t I2S_PORT = I2S_NUM_0;                  //*
 #define ADC_INPUT ADC1_CHANNEL_0                        //*
 #define ARRAYSIZE(a)    (sizeof(a)/sizeof(a[0]))        //*
@@ -129,8 +136,7 @@ void onPressed() {                                                              
   else if (numBands == 32)numBands = 64;                                                                                                              //**
   else if (numBands == 64)numBands = 8;                                                                                                               //**
   SetNumberofBands(numBands);                                                                                                                         //**
-  Serial.printf("New number of bands=%d\n", numBands);
-
+  Serial.printf("New number of bands=%d\n", numBands);                                                                                                //**
 }                                                                                                                                                     //**
 //*************Button setup end***************************************************************************************************************************
 
@@ -140,7 +146,7 @@ void onPressed() {                                                              
 int BucketFrequency(int iBucket) {
   if (iBucket <= 1)return 0;
   int iOffset = iBucket - 2;
-  return iOffset * (samplingFrequency / 2) / (SAMPLEBLOCK / 2);
+  return iOffset * (I2S_SAMPLE_RATE / 2) / (SAMPLEBLOCK / 2);
 }
 
 //****************************************************************************************
@@ -169,7 +175,6 @@ void SendData() {
   webSocket.broadcastTXT(json.c_str(), json.length());
 }
 //****************************************************************************************
-
 
 //****************************************************************************************
 //Task1code: webserver runs on separate core so that WIFI low signal doesn't freeze up program on other core
@@ -203,7 +208,6 @@ void Task1code( void * pvParameters ) {
 }
 //****************************************************************************************
 
-
 //****************************************************************************************
 // below is the function to initialize the I2S functionality, do not change
 void setupI2S() {
@@ -213,7 +217,7 @@ void setupI2S() {
   // The I2S config as per the example
   const i2s_config_t i2s_config = {
     .mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_RX | I2S_MODE_ADC_BUILT_IN),
-    .sample_rate = samplingFrequency,
+    .sample_rate = I2S_SAMPLE_RATE,
     .bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT, // could only get it to work with 32bits
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT, // although the SEL config should be left, it seems to transmit on right
     .communication_format = I2S_COMM_FORMAT_STAND_I2S,  // I2S format
@@ -228,24 +232,17 @@ void setupI2S() {
   // Configuring the I2S driver and pins.
   // This function must be called before any I2S driver read/write operations.
 
-  err = i2s_set_adc_mode(ADC_UNIT_1, ADC1_CHANNEL_0); //step 1
-  if (err != ESP_OK) {
-    Serial.printf("Failed setting up adc channel: %d\n", err);
-    while (true);
+  Serial.printf("Attempting to setup I2S ADC with sampling frequency %d Hz\n", I2S_SAMPLE_RATE);
+  if(ESP_OK != i2s_driver_install(I2S_NUM_0, &i2s_config, 0, NULL)){
+    Serial.printf("Error installing I2S. Halt!");
+    while(true);
+  }
+  if(ESP_OK != i2s_set_adc_mode(ADC_UNIT_1, ADC_INPUT)){
+    Serial.printf("Error setting up ADC. Halt!");
+    while(true);
   }
 
-  err = i2s_driver_install(I2S_NUM_0, &i2s_config,  0, NULL);  //step 2
-  if (err != ESP_OK) {
-    Serial.printf("Failed installing driver: %d\n", err);
-    while (true);
-  }
-
-  err = i2s_set_adc_mode(ADC_UNIT_1, ADC1_CHANNEL_0);
-  if (err != ESP_OK) {
-    Serial.printf("Failed setting up adc mode: %d\n", err);
-    while (true);
-  }
-  Serial.println("I2S driver installed.");
+  Serial.printf("I2S ADC setup ok\n");
 }
 //****************************************************************************************
 
@@ -267,6 +264,7 @@ void setup() {
   delay(500);
   Serial.begin(115200);
   Serial.println("Setting up Audio Input I2S");
+  // Initialize the I2S peripheral
   setupI2S();
   delay(100);
   i2s_adc_enable(I2S_NUM_0);
@@ -327,7 +325,7 @@ void loop() {
   FFT.windowing(vReal, SAMPLEBLOCK, FFT_WIN_TYP_HAMMING, FFT_FORWARD);
   FFT.compute(vReal, vImag, SAMPLEBLOCK, FFT_FORWARD);
   FFT.complexToMagnitude(vReal, vImag, SAMPLEBLOCK);
-  FFT.majorPeak(vReal, SAMPLEBLOCK, samplingFrequency);
+  FFT.majorPeak(vReal, SAMPLEBLOCK, I2S_SAMPLE_RATE);
   for (int i = 0; i < numBands; i++) {
     FreqBins[i] = 0;
   }
