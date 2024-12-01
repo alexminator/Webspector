@@ -115,7 +115,7 @@ char webpage[] PROGMEM = R"=====(
 <html>
 <!-- Adding a data chart using Chart.js -->
 <head>
-  <script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js'></script>
+  <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
 
 </head>
 <body onload="javascript:init()">

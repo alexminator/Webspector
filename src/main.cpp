@@ -24,17 +24,32 @@
 
 //included files
 #include "Settings.h"
+#include "data.h"
+// Declare the debugging level then include the header file
+#define DEBUGLEVEL DEBUGLEVEL_DEBUGGING
+// #define DEBUGLEVEL DEBUGLEVEL_NONE
+#include "debug.h"
 
 //general libaries
 #include <arduinoFFT.h>                                 //libary for FFT analysis
 #include <EasyButton.h>                                 //libary for handling buttons
+#include <SPIFFS.h>
+#include <ArduinoJson.h>
 
 //libaries for webinterface
+#define HTTP_PORT 80
 #include <WiFi.h>
-#include <WebServer.h>
-#include <WebSocketsServer.h>
-#include <Ticker.h>
-#include <WiFiManager.h>                                //The magic setup for wifi! If you need to setup your WIFI, hold the mode button during boot up.
+#include <AsyncTCP.h>
+#include <ESPmDNS.h>
+#include <ESPAsyncWebServer.h>
+
+AsyncWebServer server(HTTP_PORT);
+AsyncWebSocket ws("/ws");
+//#include <WiFi.h>
+//#include <WebServer.h>
+//#include <WebSocketsServer.h>
+//#include <Ticker.h>
+//#include <WiFiManager.h>                                //The magic setup for wifi! If you need to setup your WIFI, hold the mode button during boot up.
 
 //Driver for I2S ADC Conversion
 #include <driver/i2s.h>
@@ -69,10 +84,149 @@ ArduinoFFT<double> FFT = ArduinoFFT<double>();
 //************* web server setup *************************************************************************************************************************
 TaskHandle_t WebserverTask;                             // setting up the task handler for webserver                                                  //**
 bool      webtoken =          false;                    // this is a flag so that the webserver noise when the other core has new data                //**
-WebServer server(80);                                   // more webserver stuff                                                                       //**
-WiFiManager wm;                                         // Wifi Manager init                                                                          //**
-WebSocketsServer webSocket = WebSocketsServer(81);      // Adding a websocket to the server                                                           //**
+//WebServer server(80);                                   // more webserver stuff                                                                       //**
+//WiFiManager wm;                                         // Wifi Manager init                                                                          //**
+//WebSocketsServer webSocket = WebSocketsServer(81);      // Adding a websocket to the server                                                           //**
 //************* web server setup end**********************************************************************************************************************
+
+// ----------------------------------------------------------------------------
+// Definition of the LED component
+// ----------------------------------------------------------------------------
+
+struct Led
+{
+    // state variables
+    uint8_t pin;
+    bool on;
+
+    // methods for update state of onboard led
+    void update()
+    {
+        digitalWrite(pin, on ? HIGH : LOW);
+    }
+};
+
+// ----------------------------------------------------------------------------
+// Definition of objects
+// ----------------------------------------------------------------------------
+
+Led onboard_led = {LED_BUILTIN, false};
+
+// ----------------------------------------------------------------------------
+// SPIFFS initialization
+// ----------------------------------------------------------------------------
+
+void initSPIFFS()
+{
+    if (!SPIFFS.begin())
+    {
+        debuglnD("Cannot mount SPIFFS volume...");
+        while (1)
+        {
+            onboard_led.on = millis() % 200 < 50;
+            onboard_led.update();
+        }
+    }
+}
+
+// ----------------------------------------------------------------------------
+// Connecting to the WiFi network
+// ----------------------------------------------------------------------------
+
+void initWiFi()
+{
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(WIFI_SSID, WIFI_PASS);
+    Serial.printf("Trying to connect [%s] ", WiFi.macAddress().c_str());
+    while (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.print(".");
+        delay(500);
+    }
+    Serial.printf(" %s\n", WiFi.localIP().toString().c_str());
+    Serial.printf("Listo!\nAbre http://%s.local en navegador\n", WEB_NAME);
+    Serial.print("o en la IP: ");
+    Serial.println(WiFi.localIP());
+
+    if (!MDNS.begin(WEB_NAME))
+    {
+        debuglnD("Error configurando mDNS!");
+        while (1)
+        {
+            delay(1000);
+        }
+    }
+    debuglnD("mDNS configurado");
+}
+
+String processor(const String &var)
+{
+}
+
+void onRootRequest(AsyncWebServerRequest *request)
+{
+    request->send(SPIFFS, "/index.html", "text/html", false, processor);
+}
+
+// Initialize webserver URLs
+void initWebServer()
+{
+    server.on("/", onRootRequest);
+    server.on("/wifi-info", HTTP_GET, [](AsyncWebServerRequest *request)
+    {
+      AsyncResponseStream *response = request->beginResponseStream("application/json");
+    DynamicJsonDocument json(1024);
+    json["status"] = "ok";
+    json["ssid"] = WiFi.SSID();
+    json["ip"] = WiFi.localIP().toString();
+    json["rssi"] = WiFi.RSSI();
+    serializeJson(json, *response);
+    request->send(response); });
+
+    server.serveStatic("/", SPIFFS, "/").setDefaultFile("index.html");
+    server.onNotFound([](AsyncWebServerRequest *request)
+                    { request->send(400, "text/plain", "Not found"); });
+    //ElegantOTA.begin(&server); // Start ElegantOTA
+    server.begin();
+    debuglnD("HTTP server started");
+    MDNS.addService("http", "tcp", 80);
+}
+
+// ----------------------------------------------------------------------------
+// WebSocket initialization
+// ----------------------------------------------------------------------------
+
+void handleWebSocketMessage(void *arg, uint8_t *data, size_t len)
+{
+}
+
+void onWsEvent(AsyncWebSocket *server, AsyncWebSocketClient *client, AwsEventType type, void *arg, uint8_t *data, size_t len)
+{
+    switch (type)
+    {
+    case WS_EVT_CONNECT:
+        Serial.printf("WebSocket client #%u connected from %s\n", client->id(), client->remoteIP().toString().c_str());
+        break;
+    case WS_EVT_DISCONNECT:
+        Serial.printf("WebSocket client #%u disconnected\n", client->id());
+        break;
+    case WS_EVT_DATA:
+        handleWebSocketMessage(arg, data, len);
+        break;
+    case WS_EVT_PONG:
+        Serial.printf("ws[%s][%u] pong[%u]: %s\n", server->url(), client->id(), len, (len) ? (char *)data : "");
+    case WS_EVT_ERROR:
+        Serial.printf("ws[%s][%u] error(%u): %s\n", server->url(), client->id(), *((uint16_t *)arg), (char *)data);
+        break;
+    }
+}
+
+void initWebSocket()
+{
+    ws.onEvent(onWsEvent);
+    server.addHandler(&ws);
+    debuglnD("WebSocket server started");
+}
 
 //****************************************************************************************
 // below is is function that is needed when changing the number of bands during runtime, do not change
@@ -150,12 +304,13 @@ int BucketFrequency(int iBucket) {
 }
 
 //****************************************************************************************
+/*
 void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length) {
   // Do something with the data from the client
   if (type == WStype_TEXT) {
     Serial.println("websocket event Triggered");
   }
-}
+}*/
 //****************************************************************************************
 
 //****************************************************************************************
@@ -250,6 +405,11 @@ void setupI2S() {
 // Below is the Setup function that is run once on startup 
 
 void setup() {
+
+  initSPIFFS();
+  initWiFi();
+  initWebSocket();
+  initWebServer();
   //create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
   // this will run the webinterface datatransfer.
   xTaskCreatePinnedToCore(
@@ -272,25 +432,27 @@ void setup() {
   ModeBut.onPressed(onPressed);
 
 
-  if (digitalRead(MODE_BUTTON_PIN) == 0) {              //reset saved settings is mode button is pressed and hold during startup
-    Serial.println("button pressed on startup, WIFI settings will be reset");
-    wm.resetSettings();
-  }
+  //if (digitalRead(MODE_BUTTON_PIN) == 0) {              //reset saved settings is mode button is pressed and hold during startup
+  //  Serial.println("button pressed on startup, WIFI settings will be reset");
+  //  wm.resetSettings();
+  //}
 
-  wm.setConfigPortalBlocking(false);                    //Try to connect WiFi, then create AP but if no success then don't block the program
+  //wm.setConfigPortalBlocking(false);                    //Try to connect WiFi, then create AP but if no success then don't block the program
   // If needed, it will be handled in core 0 later
-  wm.autoConnect("ESP32_AP", "");
+ // wm.autoConnect("ESP32_AP", "");
 
   Serial.println(Projectinfo);                          // print some info about the project
-  server.on("/", []() {                                 // this will load the actual html webpage to be displayed
-    server.send_P(200, "text/html", webpage);
-  });
+  //server.on("/", []() {                                 // this will load the actual html webpage to be displayed
+  //  server.send_P(200, "text/html", webpage);
+  //});
 
-  server.begin();                                       // now start the server
-  Serial.println("HTTP server started");
-  webSocket.begin();
-  webSocket.onEvent(webSocketEvent);
+  //server.begin();                                       // now start the server
+  //Serial.println("HTTP server started");
+  //webSocket.begin();
+  //webSocket.onEvent(webSocketEvent);
   SetNumberofBands(numBands);
+
+ 
 }
 //****************************************************************************************
 
