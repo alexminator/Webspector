@@ -115,7 +115,7 @@ char webpage[] PROGMEM = R"=====(
 <html>
 <!-- Adding a data chart using Chart.js -->
 <head>
-  <script src='https://cdnjs.cloudflare.com/ajax/libs/Chart.js/2.5.0/Chart.min.js'></script>
+  <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
 
 </head>
 <body onload="javascript:init()">
@@ -130,7 +130,7 @@ char webpage[] PROGMEM = R"=====(
 <script>
   var webSocket, dataPlot;
   var maxDataPoints = 20;
-  const maxValue = 1;//200000000;
+  const maxValue = 1;
   const maxLow = maxValue * 0.6;
   const maxMedium = maxValue * 0.3;
   const maxHigh = maxValue * 0.1;
@@ -139,7 +139,8 @@ image.src = 'https://www.chartjs.org/img/chartjs-logo.svg';
 
   function init() {
     webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
-    dataPlot = new Chart(document.getElementById("chart"), {
+    const ctx = document.getElementById("chart").getContext('2d');
+    dataPlot = new Chart(ctx, {
       type: 'bar',
       data: {
         labels: [],        
@@ -170,17 +171,20 @@ image.src = 'https://www.chartjs.org/img/chartjs-logo.svg';
           responsive: false,
           animation: false,
           scales: {
-              xAxes: [{ stacked: true }],
-              yAxes: [{
-                  display: true,
+              x: {
+               stacked: true 
+               },
+              y: {
+                  beginAtZero: true,
                   stacked: true,
+                  suggestedMin: 0,
+                  suggestedMax: maxValue,
                   ticks: {
-                    beginAtZero: true,
-                    steps: 1000,
-                    stepValue: 50,
+                    stepSize: 0.1,
+                    min: 0,
                     max: maxValue
                   }
-              }]
+              }
            }
        }
     });
