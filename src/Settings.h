@@ -116,15 +116,18 @@ char webpage[] PROGMEM = R"=====(
 <!-- Adding a data chart using Chart.js -->
 <head>
   <script src='https://cdn.jsdelivr.net/npm/chart.js'></script>
-
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-gradient"></script>
 </head>
 <body onload="javascript:init()">
 <style>
-
+.darkmode {
+color: black;
+}
 </style>
 <h2>Analog Spectrum Analyzer</h2>
-<div>
-  <canvas id="chart" width="1200" height="800" style="background: url('https://community.element14.com/e14/cfs/e14core/images/logos/e14_Profile_206px.png');  background-repeat: no-repeat;background-position-x: center;;background-position-y: center;"></canvas>
+<div id="backgroundColorChart" class="chartbox" style="position: relative; height:80vh; width:100vw">
+  <canvas id="chart"></canvas>
+  <input type="checkbox" onchange="darkMode(this)" name=""><span id="checkboxText" class="">Dark  Mode</span>
 </div>
 <!-- Adding a websocket to the client (webpage) -->
 <script>
@@ -139,36 +142,34 @@ image.src = 'https://www.chartjs.org/img/chartjs-logo.svg';
 
   function init() {
     webSocket = new WebSocket('ws://' + window.location.hostname + ':81/');
-    const ctx = document.getElementById("chart").getContext('2d');
-    dataPlot = new Chart(ctx, {
-      type: 'bar',
-      data: {
-        labels: [],        
+    const config = {
+          type: 'bar',
+       data: {
         datasets: [{
           data: [],
           label: "Low",
-          backgroundColor: "green",//"#D6E9C6"
-          borderColor:"black",
+          gradient: { backgroundColor: { axis: 'y', colors: { 0: 'green', 100: 'yellow' } } },
+		      borderColor:'black',
           borderWidth: 3
         },
         {
           data: [],
           label: "Moderate",
-          backgroundColor: "yellow", //"#FAEBCC"
-          borderColor:"black",
+		      gradient: { backgroundColor: { axis: 'y', colors: { 0: 'yellow', 100: 'orange' } } },
+          borderColor:'black',
           borderWidth: 3
         },
         {
           data: [],
           label: "High",
-          backgroundColor: "red", //"#EBCCD1"
-          borderColor:"black",
+		      gradient: { backgroundColor: { axis: 'y', colors: { 0: 'orange', 100: 'red' } } },
+          borderColor:'black',
           borderWidth: 3
-        },
-        ]
-      }, 
+        }]
+      },
       options: {
-          responsive: false,
+          responsive: true,
+          maintainAspectRatio: false,
           animation: false,
           scales: {
               x: {
@@ -186,8 +187,15 @@ image.src = 'https://www.chartjs.org/img/chartjs-logo.svg';
                   }
               }
            }
-       }
-    });
+       },
+     plugins: [
+			window['chartjs-plugin-gradient']
+		 ]  
+    };
+    const ctx = document.getElementById("chart").getContext('2d');
+    dataPlot = new Chart(ctx, 
+    config
+	);
 
     
     webSocket.onmessage = function(event) {
@@ -212,7 +220,32 @@ image.src = 'https://www.chartjs.org/img/chartjs-logo.svg';
       dataPlot.update();
     }
   }
+  function darkMode(checkbox) {
+  const x =  dataPlot.config.options.scales.x;
+  const y =  dataPlot.config.options.scales.y;
+  const bgColorChart = document.getElementById('backgroundColorChart');
 
+  if(checkbox.checked === true) {
+  bgColorChart.style.backgroundColor = 'black';
+  x.grid.borderColor = 'white';
+  y.grid.borderColor = 'white';
+  x.grid.color = 'rgba(255, 255, 255, 0.5)';
+  y.grid.color = 'rgba(255, 255, 255, 0.5)';
+  Chart.defaults.color = 'white';
+  document.getElementById('checkboxText').classList.add('darkmode');
+  } 
+
+  if(checkbox.checked === false) {
+  bgColorChart.style.backgroundColor = 'white';
+  x.grid.borderColor = '#666';
+  y.grid.borderColor = '#666';
+  x.grid.color = 'rgba(0, 0, 0, 0.1)';
+  y.grid.color = 'rgba(0, 0, 0, 0.1)';
+  Chart.defaults.color = '#666';
+  document.getElementById('checkboxText').classList.remove('darkmode');
+  } 
+  dataPlot.update();
+  }
 </script>
 <table width="100%" border="0" cellspacing="0" cellpadding="0">
   <tr>
